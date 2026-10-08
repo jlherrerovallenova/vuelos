@@ -5,7 +5,7 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -25,6 +25,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Vercel Serverless path rewrite middleware:
+# Restores original client URL from x-matched-path if Vercel rewrote the request to /api/index.py
+@app.middleware("http")
+async def vercel_rewrite_middleware(request: Request, call_next):
+    matched_path = request.headers.get("x-matched-path")
+    if matched_path and request.scope.get("path") == "/api/index.py":
+        request.scope["path"] = matched_path
+    return await call_next(request)
 
 # Register API routes with and without /api prefix for maximum compatibility
 app.include_router(flights_router, prefix="/api")
@@ -56,11 +65,14 @@ if dist_dir:
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        # Don't intercept API or docs routes
-        if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+        # If client requested root or was rewritten to api/index.py by Vercel
+        if full_path in ["", "api/index.py"]:
+            return FileResponse(os.path.join(dist_dir, "index.html"))
+        # Do not shadow API endpoints or Swagger docs
+        if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
             return {"detail": "Not Found"}
         target = os.path.join(dist_dir, full_path)
-        if full_path and os.path.isfile(target):
+        if os.path.isfile(target):
             return FileResponse(target)
         return FileResponse(os.path.join(dist_dir, "index.html"))
 else:
