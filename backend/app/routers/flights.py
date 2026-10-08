@@ -13,7 +13,7 @@ from app.services.airport_service import search_airports, get_airport_by_code
 from app.services.flight_scraper import scrape_flights
 from app.services.flexible_search import get_flexible_calendar, explore_anywhere
 
-router = APIRouter(prefix="/api", tags=["flights"])
+router = APIRouter(tags=["flights"])
 
 @router.get("/airports/search", response_model=List[AirportItem])
 def get_airports(q: str = Query("", description="Query for airport code, city or country")):

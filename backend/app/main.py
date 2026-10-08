@@ -1,5 +1,14 @@
+import os
+import sys
+
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.routers.flights import router as flights_router
 
 app = FastAPI(
@@ -17,19 +26,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register API routes with and without /api prefix for maximum compatibility
+app.include_router(flights_router, prefix="/api")
 app.include_router(flights_router)
 
-@app.get("/")
-def root():
-    return {
-        "status": "online",
-        "service": "FlightFinder Zero-Cost API",
-        "docs": "/docs"
-    }
-
+@app.get("/health")
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "service": "FlightFinder API"}
+
+# Mount and serve frontend dist assets
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DIST_CANDIDATES = [
+    os.path.abspath(os.path.join(BASE_DIR, "..", "..", "frontend", "dist")),
+    os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "dist")),
+    os.path.abspath(os.path.join(BASE_DIR, "dist")),
+]
+
+dist_dir = None
+for candidate in DIST_CANDIDATES:
+    if os.path.exists(candidate) and os.path.exists(os.path.join(candidate, "index.html")):
+        dist_dir = candidate
+        break
+
+if dist_dir:
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        # Don't intercept API or docs routes
+        if full_path.startswith("api") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            return {"detail": "Not Found"}
+        target = os.path.join(dist_dir, full_path)
+        if full_path and os.path.isfile(target):
+            return FileResponse(target)
+        return FileResponse(os.path.join(dist_dir, "index.html"))
+else:
+    @app.get("/")
+    def root():
+        return {
+            "status": "online",
+            "service": "FlightFinder Zero-Cost API",
+            "docs": "/docs"
+        }
 
 if __name__ == "__main__":
     import uvicorn
